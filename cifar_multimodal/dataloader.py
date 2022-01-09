@@ -5,7 +5,6 @@ import os
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-from transformers import BertTokenizer
 
 from utils import encode_examples
 
@@ -14,15 +13,12 @@ class DataLoader:
     def __init__(self):
         self.args = None
         self.global_args = None
-        self.data_list = []
         self.train_data_encode = tf.data.Dataset.from_tensor_slices([])
+        self.tokenizer = None
 
     def parse_args(self, global_args, args):
         parser = argparse.ArgumentParser()
-        parser.add_argument('--data_path_image', type=str,
-                            default=r'',
-                            help='Base path of the input data (image).')
-        parser.add_argument('--data_path_text', type=str, default='./data')
+        parser.add_argument('--data_path_text', type=str, default=r'./data', help='Base path of the input text data')
         self.global_args = global_args
 
         self.args, remaining_args = parser.parse_known_args(args=args)
@@ -46,9 +42,11 @@ class DataLoader:
 
         # load text data and concat data to make multi-modal dataset
         x_text = pd.read_csv(text_path, names=['text'])
-        y_text = pd.DataFrame(y_image[:, -1], columns=['label'])
-        x_text = pd.concat([x_text, y_text], axis=1)
+        y_image = pd.DataFrame(y_image[:, -1], columns=['label'])
+        x_text = pd.concat([x_text, y_image], axis=1)
 
-        tokenizer = BertTokenizer.from_pretrained(self.global_args.pretrained_model_path_text)
-        self.train_data_encode = encode_examples(
-            x_text, x_image, tokenizer).shuffle(5000).batch(self.global_args.batch_size)
+        self.train_data_encode, self.tokenizer = encode_examples(x_text, x_image)
+        self.train_data_encode = self.train_data_encode.shuffle(5000).batch(
+            self.global_args.batch_size).prefetch(tf.data.experimental.AUTOTUNE)
+
+        return self.tokenizer

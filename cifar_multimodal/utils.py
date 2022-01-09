@@ -1,46 +1,27 @@
 import tensorflow as tf
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-MAX_LENGTH = 32
-
-
-def convert_example_to_feature(review, tokenizer):
-    # combine step for tokenization, WordPiece vector mapping,
-    # adding special tokens as well as truncating reviews longer than the max length
-    return tokenizer.encode_plus(review,
-                                 add_special_tokens=True,  # add [CLS], [SEP]
-                                 max_length=MAX_LENGTH,  # max length of the text that can go to BERT
-                                 pad_to_max_length=True,  # add [PAD] tokens
-                                 return_attention_mask=True,  # add attention mask to not focus on pad tokens
-                                 truncation=True
-                                 )
+VOCAB_SIZE = 1000
+MAX_LEN = 100
 
 
-# map to the expected input to TFBertForSequenceClassification, see here
-def map_example_to_dict(input_ids, attention_masks, token_type_ids, image_list, label):
-    return ({
-               "input_ids": input_ids,
-               "token_type_ids": token_type_ids,
-               "attention_mask": attention_masks,
-           }, label), (image_list, label)
+def map_example_to_dict(text_list, image_list, label):
+    return (text_list, label), (image_list, label)
 
 
-def encode_examples(ds, image_list, tokenizer, limit=-1):
-    # prepare list, so that we can build up final TensorFlow dataset from slices.
-    input_ids_list = []
-    token_type_ids_list = []
-    attention_mask_list = []
+def encode_examples(texts, image_list):
+    tokenizer = Tokenizer(num_words=VOCAB_SIZE)
+    tokenizer.fit_on_texts(texts['text'])
+    text_tokenized = tokenizer.texts_to_sequences(texts['text'])
+    text_tokenized = pad_sequences(text_tokenized, maxlen=MAX_LEN)
+
+    # prepare list, so that can build up final tensorflow dataset from slices
+    text_list = []
     label_list = []
-    if limit > 0:
-        ds = ds.take(limit)
-
-    for index, row in ds.iterrows():
-        review = row["text"]
+    for index, row in texts.iterrows():
         label = row["label"]
-        bert_input = convert_example_to_feature(review, tokenizer)
-
-        input_ids_list.append(bert_input['input_ids'])
-        token_type_ids_list.append(bert_input['token_type_ids'])
-        attention_mask_list.append(bert_input['attention_mask'])
+        text_list.append(text_tokenized[index].reshape(-1, 1))
         label_list.append([label])
     return tf.data.Dataset.from_tensor_slices(
-        (input_ids_list, attention_mask_list, token_type_ids_list, image_list, label_list)).map(map_example_to_dict)
+        (text_list, image_list, label_list)).map(map_example_to_dict, num_parallel_calls=4), tokenizer

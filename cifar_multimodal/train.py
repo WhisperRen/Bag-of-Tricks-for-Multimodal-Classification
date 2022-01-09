@@ -3,12 +3,15 @@ import json
 import os
 import traceback
 import time
+from tqdm import tqdm
+import logging
 
 import tensorflow as tf
-import tqdm
 
 from dataloader import DataLoader
-from model import BimodalModel
+from model import EarlyFusionModel, LateFusionModel
+
+logger = logging.Logger(__name__)
 
 
 def main():
@@ -18,17 +21,17 @@ def main():
     parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
     parser.add_argument('--data_training', action='store_true', default=True,
                         help='Specify this if it is for training.')
-    parser.add_argument('--epochs', type=int, default=20)
-    parser.add_argument('--cuda_device', type=str, default='-1',
+    parser.add_argument('--epochs', type=int, default=5)
+    parser.add_argument('--cuda_device', type=str, default='0',
                         help='CUDA device index to be used in training.'
                              'This parameter may be set to the environment variable \'CUDA_VISIBLE_DEVICES\'. '
                              'Specify it as -1 to disable GPUs.')
 
-    parser.add_argument('--train_path', type=str, default='/tmp/train/',
+    parser.add_argument('--train_path', type=str, default='./restore_path',
                         help='Base path of the trained model to be saved.')
     parser.add_argument('--log_freq', type=int, default=10, help='The frequency of logging.')
     parser.add_argument('--summary_freq', type=int, default=1000, help='The frequency of logging on TensorBoard.')
-    parser.add_argument('--save_freq', type=int, default=100, help='The frequency of saving the trained model.')
+    parser.add_argument('--save_freq', type=int, default=200, help='The frequency of saving the trained model.')
     parser.add_argument('--sleep_ratio', type=float, default=0.05,
                         help='The ratio of sleeping time for each training step, '
                              'which prevents overheating of GPUs. Specify 0 to disable sleeping.')
@@ -40,8 +43,6 @@ def main():
                         help='Initial global step. Specify this to resume the training.')
 
     parser.add_argument('--num_classes', type=int, default=10, help='Class number for classification task')
-    parser.add_argument('--pretrained_model_path_text', type=str,
-                        default=r'D:\Codes\Pycharm\embracenet\bert_base_uncased', help='Pre-trained model path (text)')
 
     args, remaining_args = parser.parse_known_args()
 
@@ -53,13 +54,13 @@ def main():
     tf.print('prepare data loader')
     dataloader = DataLoader()
     dataloader_args, remaining_args = dataloader.parse_args(args, remaining_args)
-    dataloader.prepare()
+    tokenizer = dataloader.prepare()
 
     # model
     tf.print('prepare model')
-    model = BimodalModel()
+    model = EarlyFusionModel()
     model_args, remaining_args = model.parse_args(args, remaining_args)
-    model.prepare(is_training=True, global_step=args.global_step)
+    model.prepare(tokenizer, is_training=True, global_step=args.global_step)
 
     # check remaining args
     if len(remaining_args) > 0:
@@ -84,7 +85,7 @@ def main():
     tf.print('begin training')
     local_train_step = 0
     try:
-        for _ in tqdm.tqdm(range(args.epochs)):
+        for _ in tqdm(range(args.epochs)):
             for input_text, input_image in dataloader.train_data_encode:
                 global_train_step = model.global_step + 1
                 local_train_step += 1
@@ -96,6 +97,7 @@ def main():
                 loss = model.train_step(input_text=input_text, input_image=input_image, summary=summary)
 
                 duration = time.time() - start_time
+
                 if args.sleep_ratio > 0 and duration > 0:
                     time.sleep(min(10.0, duration * args.sleep_ratio))
 

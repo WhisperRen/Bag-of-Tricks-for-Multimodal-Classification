@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# weights
+cifar_multimodal/restore_path/
+
 # C extensions
 *.so
 
